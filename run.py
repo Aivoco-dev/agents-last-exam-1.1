@@ -7,18 +7,18 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 from bootstrap import REPO, ensure_env, require_tools, checkout, clean_environment, result_directory
-from cl_adapter import bridge, load_key, read_env
+from cl_adapter import bridge, load_key, read_env, add_continual_learning_argument, resolve_continual_learning
 
 URL = "https://github.com/rdi-berkeley/agents-last-exam"
 REVISION = "2e91edd3cd26baa35a38127c90c8e5241dfbe62f"
 
 
-def run_task(task, key, output, upstream, environment, env):
+def run_task(task, key, output, upstream, environment, env, *, continual_learning):
     task_dir = output.joinpath(*task.split("/"))
     task_dir.mkdir(parents=True)
     agent = task_dir / "agent.yaml"
     config = task_dir / "experiment.yaml"
-    with bridge(key, limit=600) as (url, token, vision):
+    with bridge(key, limit=600, continual_learning=continual_learning) as (url, token, vision):
         agent.write_text(json.dumps({
             "harness": "ale_claw", "executor": "local", "model": "openai/vispark/vision-large",
             "config": {
@@ -56,13 +56,18 @@ def run_task(task, key, output, upstream, environment, env):
 
 def main():
     settings = read_env(REPO)
-    parser = argparse.ArgumentParser(description="Agents’ Last Exam v1.1 with ale_run and Vision continual learning")
+    parser = argparse.ArgumentParser(description="Agents’ Last Exam v1.1 with ale_run and Vision")
     parser.add_argument("--workers", type=int, default=settings.get("BENCH_WORKERS") or "1")
     parser.add_argument("--task", action="append", help="Published task ID, including its domain if listed")
     parser.add_argument("--environment", default=settings.get("ALE_ENVIRONMENT") or None, help="Path to an official ALE environment YAML")
     parser.add_argument("--prepare", action="store_true", help="Download the pinned release and install its dependencies")
     parser.add_argument("--plan", action="store_true")
+    add_continual_learning_argument(parser)
     args = parser.parse_args()
+    try:
+        continual_learning = resolve_continual_learning(args.continual_learning, settings)
+    except ValueError as error:
+        parser.error(str(error))
     official = [line for line in (REPO / "tasks.txt").read_text().splitlines() if line and not line.startswith("#")]
     selected = args.task or official
     if len(set(official)) != 122:
@@ -71,8 +76,8 @@ def main():
         parser.error("Use positive workers and unique published task IDs")
     if args.plan:
         print(json.dumps({
-            "release": "v1.1", "harness": "ale_run / ALE-Claw + Vision CL",
-            "workers": args.workers, "task_count": len(selected), "tasks": selected,
+            "release": "v1.1", "harness": "ale_run / ALE-Claw + Vision",
+            "workers": args.workers, "continual_learning": continual_learning, "task_count": len(selected), "tasks": selected,
         }, indent=2))
         return 0
     if not args.prepare:
@@ -91,12 +96,15 @@ def main():
     if not environment.is_file():
         parser.error(f"Environment file does not exist: {environment}")
     output = result_directory(
-        benchmark="Agents' Last Exam", harness="ale_run / ALE-Claw + Vision CL",
-        release="v1.1", tasks=selected, workers=args.workers, revision=REVISION,
+        benchmark="Agents' Last Exam", harness="ale_run / ALE-Claw + Vision",
+        release="v1.1", tasks=selected, workers=args.workers, continual_learning=continual_learning, revision=REVISION,
         wall_time_s=18000, environment=environment.name,
     )
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        outcomes = list(executor.map(lambda task: run_task(task, key, output, source, environment, env), selected))
+        outcomes = list(executor.map(
+            lambda task: run_task(task, key, output, source, environment, env, continual_learning=continual_learning),
+            selected,
+        ))
     scores = [score for score in outcomes if score is not None]
     summary = {
         "planned": len(selected), "graded": len(scores),

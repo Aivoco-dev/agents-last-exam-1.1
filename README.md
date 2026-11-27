@@ -1,6 +1,6 @@
 # Agents’ Last Exam v1.1
 
-**122 tasks · ale_run and ALE-Claw · Vision Large with continual learning**
+**122 tasks · ale_run and ALE-Claw · Vision Large · optional continual learning**
 
 ## Start
 
@@ -14,7 +14,19 @@
 ./start --task visual_media/music_transcription
 ```
 
-ALE provisions and grades each environment. Each task has a five-hour execution limit and a fresh Vision memory session.
+ALE provisions and grades each environment. Each task has a five-hour execution limit. With continual learning enabled, Vision starts each task with empty learning weights.
+
+## Continual learning
+
+Set `CONTINUAL_LEARNING=on` or `CONTINUAL_LEARNING=off` in this repo’s `.env` for one-click runs. The default is on. You can override it for a single run:
+
+```sh
+./start --continual-learning
+./start --no-continual-learning
+./start --plan --no-continual-learning
+```
+
+Both modes use the same tasks, harness, and conversation history within each task. Turning continual learning off skips the additional learning call and the use of learning weights. `run.json` records the selected mode.
 
 ## Results
 
